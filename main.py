@@ -1,97 +1,105 @@
 import os
+import requests
+import time
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
-# Yahan apna complete JSON data paste karein
-# Maine aapke diye hue data ka structure use kiya hai
-STATIC_RESPONSE = {
-    "success": True,
-    "responseCode": 3001,
-    "message": "Courses List",
-    "data": [
-        {
-            "layout_type": "category_list_layout",
-            "layout_title": "All Categories",
-            "list": []
-        },
-        {
-            "layout_type": "course_list_layout",
-            "layout_title": "All Courses",
-            "list": [
-                {
-                    "id": 83,
-                    "title": "UP Board ABHAY 10th (हिंदी माध्यम)",
-                    "description": "<p>Course description here</p>",
-                    "thumbnail": "https://dylnd2lqy6eys.cloudfront.net/540/admin_v1/bundle_management/course/641788840605_Abhay_UP_Board_(1).png",
-                    "mrp": "1499.00",
-                    "offer_price": "499.00",
-                    "cat_type": 0,
-                    "shipping_charge": "0.00",
-                    "course_type": 1,
-                    "tax_rate": 18,
-                    "info": {"text": "184: Video, 185: Pdf, 31: test, 20: DPP, 1: Survey"},
-                    "duration_type": 3,
-                    "days": 0,
-                    "start_date": "1763317800",
-                    "end_date": "1774981800",
-                    "is_featured": "",
-                    "is_new": "",
-                    "is_trending": "",
-                    "average_rating": "0.0",
-                    "review_count": 0,
-                    "pdf": "",
-                    "is_popup": 0,
-                    "is_purchased": 0,
-                    "valid_from": None,
-                    "valid_to": None,
-                    "discount_percentage": 66.71
-                },
-                {
-                    "id": 84,
-                    "title": "Bihar Board ABHAY 10th(हिंदी माध्यम)",
-                    "description": "<p>Bihar Board course description</p>",
-                    "thumbnail": "https://dylnd2lqy6eys.cloudfront.net/540/admin_v1/bundle_management/course/777873140606_Abhay_Bihar_Board_(1).png",
-                    "mrp": "1499.00",
-                    "offer_price": "499.00",
-                    "cat_type": 0,
-                    "shipping_charge": "0.00",
-                    "course_type": 1,
-                    "tax_rate": 18,
-                    "info": {"text": "190: Video, 188: Pdf, 32: test, 19: DPP, 1: Survey"},
-                    "duration_type": 3,
-                    "days": 120,
-                    "start_date": "1763317800",
-                    "end_date": "1774895400",
-                    "is_featured": "",
-                    "is_new": "",
-                    "is_trending": "",
-                    "average_rating": "0.0",
-                    "review_count": 0,
-                    "pdf": "",
-                    "is_popup": 0,
-                    "is_purchased": 0,
-                    "valid_from": None,
-                    "valid_to": None,
-                    "discount_percentage": 66.71
-                }
-                # Yahan baaki courses add karein...
-            ]
-        }
-    ]
-}
+# Caching variables
+cached_response = None
+last_fetch_time = 0
+CACHE_DURATION = 300  # 5 minutes
 
 @app.get("/allbatch")
 def get_allbatch():
-    return JSONResponse(content=STATIC_RESPONSE, status_code=200)
+    global cached_response, last_fetch_time
+    
+    current_time = time.time()
+    
+    # Agar cache valid hai (5 minute se kam purana), toh cached data return karo
+    if cached_response and (current_time - last_fetch_time) < CACHE_DURATION:
+        return JSONResponse(content=cached_response, status_code=200)
+    
+    # Original API URL
+    url = "https://nt.rarestudy.in/api/batches"
+    
+    # Headers
+    headers = {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "cache-control": "no-cache",
+        "pragma": "no-cache",
+        "priority": "u=1, i",
+        "referer": "https://nt.rarestudy.in/",
+        "sec-ch-ua": '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+    }
+    
+    # Cookies
+    cookies = {
+        "nt_favs": '["179"]',
+        "nt_completed": "{}"
+    }
+
+    try:
+        # Original API se data fetch karna
+        response = requests.get(url, headers=headers, cookies=cookies, timeout=15)
+        
+        # Check karo ki response valid hai ya nahi
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                # Cache update karo
+                cached_response = data
+                last_fetch_time = current_time
+                return JSONResponse(content=data, status_code=200)
+            except Exception as json_error:
+                # JSON parse fail - cached data use karo
+                if cached_response:
+                    return JSONResponse(content=cached_response, status_code=200)
+                return JSONResponse(
+                    content={"success": False, "error": "Invalid JSON from upstream", "details": str(json_error)}, 
+                    status_code=502
+                )
+        else:
+            # Non-200 status - cached data use karo
+            if cached_response:
+                return JSONResponse(content=cached_response, status_code=200)
+            return JSONResponse(
+                content={"success": False, "error": f"Upstream returned status {response.status_code}"}, 
+                status_code=502
+            )
+            
+    except requests.exceptions.Timeout:
+        if cached_response:
+            return JSONResponse(content=cached_response, status_code=200)
+        return JSONResponse(
+            content={"success": False, "error": "Request timed out"}, 
+            status_code=504
+        )
+    except Exception as e:
+        if cached_response:
+            return JSONResponse(content=cached_response, status_code=200)
+        return JSONResponse(
+            content={"success": False, "error": str(e)}, 
+            status_code=500
+        )
 
 @app.get("/")
 def root():
     return {
         "status": "API is running successfully",
-        "message": "Static response mode - Hit /allbatch to get course data.",
-        "total_courses": len(STATIC_RESPONSE["data"][1]["list"])
+        "message": "Hit /allbatch to get batches data from nt.rarestudy.in",
+        "cache_info": {
+            "has_cache": cached_response is not None,
+            "cache_age_seconds": int(time.time() - last_fetch_time) if cached_response else None
+        }
     }
 
 if __name__ == "__main__":
