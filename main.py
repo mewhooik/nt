@@ -2,38 +2,42 @@ from fastapi import FastAPI
 import requests
 
 app = FastAPI(
-    title="Exam Crushers API",
-    version="1.0.0"
+    title="ExamCrushers API",
+    version="1.0"
 )
 
-BASE_URL = "https://examcrushers.in/NT/proxy.php"
+SOURCE_URL = "https://examcrushers.in/NT/proxy.php?endpoint=all-course"
 
 
 @app.get("/")
-def home():
+def root():
     return {
         "status": "online",
-        "message": "Railway API Running"
+        "message": "API Running"
+    }
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "ok"
     }
 
 
 @app.get("/allbatch")
 def allbatch():
     try:
-        r = requests.get(
-            f"{BASE_URL}?endpoint=all-course",
+        response = requests.get(
+            SOURCE_URL,
             timeout=30
         )
 
-        return r.json()
+        response.raise_for_status()
+
+        return response.json()
 
     except Exception as e:
         return {
             "success": False,
             "error": str(e)
         }
-
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
